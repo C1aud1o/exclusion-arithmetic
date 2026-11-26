@@ -6,11 +6,14 @@ number of high zeros.  A DFA is a pair (table, accept): table[q] = (q0, q1)
 are the successors of state q on bits 0 and 1, state 0 is initial.
 """
 
+from decimal import Decimal, localcontext
+
 from .core import v2
 
 __all__ = [
     "runs", "is_multiple_of_3", "is_multiple_of_5", "DFA3", "DFA5",
     "multiples_dfa", "equivalent", "accepts", "count_odd", "odd_members",
+    "rational_gf", "dominant_root", "growth_rate",
 ]
 
 
@@ -268,3 +271,75 @@ def odd_members(dfa, n):
             if r in live:
                 stack.append((r, value | bit << length, length + 1))
     return sorted(out)
+
+
+# --- exact generating functions and growth rates ---------------------------------
+
+def rational_gf(counts):
+    """(P, Q): integer coefficient lists with sum counts[n] z^n = P(z) / Q(z), Q(0) = 1.
+
+    The counts of a DFA with m states satisfy a linear recurrence of order
+    <= m with integer coefficients.  Berlekamp-Massey modulo a large prime
+    finds the shortest candidate; it is then verified exactly, over the
+    integers, on every term supplied (ValueError otherwise).  Pass at least
+    2 m + 2 terms.  The recurrence counts[n] = -sum_{i >= 1} Q[i] counts[n - i]
+    holds for n > deg P.
+    """
+    p = (1 << 61) - 1
+    c, b, L, m, last = [1], [1], 0, 1, 1
+    for n, s in enumerate(counts):
+        d = (s + sum(c[i] * counts[n - i] for i in range(1, L + 1))) % p
+        if d == 0:
+            m += 1
+            continue
+        t, coef = c[:], d * pow(last, -1, p) % p
+        c += [0] * (len(b) + m - len(c))
+        for i, x in enumerate(b):
+            c[i + m] = (c[i + m] - coef * x) % p
+        if 2 * L <= n:
+            L, b, last, m = n + 1 - L, t, d, 1
+        else:
+            m += 1
+    q = [x - p if x > p // 2 else x for x in (c + [0] * (L + 1))[: L + 1]]
+    if 2 * L + 2 > len(counts) or any(
+        sum(q[i] * counts[n - i] for i in range(L + 1)) for n in range(L, len(counts))
+    ):
+        raise ValueError("not enough terms, or no integer recurrence")
+    num = [sum(q[i] * counts[n - i] for i in range(n + 1)) for n in range(L)]
+    while q[-1] == 0:
+        q.pop()
+    while num and num[-1] == 0:
+        num.pop()
+    return num, q
+
+
+def dominant_root(Q, digits=30):
+    """The largest real root of x^k Q(1/x), k = deg Q, as a Decimal.
+
+    For Q the denominator of a generating function with non-negative
+    coefficients this is the growth rate of the coefficients.  Newton's
+    method from x = 2, above every root here (the counts are at most 2^n).
+    """
+    with localcontext() as ctx:
+        ctx.prec = digits + 15
+        coeffs = [Decimal(c) for c in Q]
+        k = len(coeffs) - 1
+        x, tiny = Decimal(2), Decimal(10) ** -(digits + 8)
+        for _ in range(1000):
+            f = sum(c * x ** (k - i) for i, c in enumerate(coeffs))
+            df = sum(c * (k - i) * x ** (k - i - 1) for i, c in enumerate(coeffs[:k]))
+            step = f / df
+            x -= step
+            if abs(step) < tiny:
+                break
+        ctx.prec = digits
+        return +x
+
+
+def growth_rate(dfa, digits=30):
+    """(lambda, log2 lambda) for the number of odd n-bit integers accepted by the DFA."""
+    counts = count_odd(dfa, 4 * len(dfa[0]) + 40)
+    lam = dominant_root(rational_gf(counts)[1], digits)
+    with localcontext() as ctx:
+        ctx.prec = digits
+        return lam, lam.ln() / Decimal(2).ln()

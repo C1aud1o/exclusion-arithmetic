@@ -22,7 +22,7 @@ The density of the terms decays exponentially: the number of terms with exactly 
 
 LINKS
 Table of n, a(n) for n = 1..10000  [upload oeis/bfiles/b_odd_composites.txt]
-<a href="https://github.com/c1aud1o/exclusion-arithmetic">exclusion-arithmetic: Python and C code, proofs and data</a>, GitHub repository.
+<a href="https://github.com/C1aud1o/exclusion-arithmetic">exclusion-arithmetic: Python and C code, proofs and data</a>, GitHub repository.
 <a href="/index/Bi#binary">Index entries for sequences related to binary expansion of n</a>
 
 EXAMPLE

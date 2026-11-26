@@ -13,12 +13,15 @@ S is not cancellative (3 [x] 3 = 3 [x] 5 = 15), so quotients are sets.
 """
 
 from functools import lru_cache
+from math import log2
 
 from .core import eadd, emul, g, v2, w
 
 __all__ = [
     "quotients", "divides", "divisors", "is_composite", "is_irreducible",
-    "factorizations", "odd_composites", "gap_irreducible", "G",
+    "factorizations", "lengths", "odd_composites", "gap_irreducible", "G",
+    "top_gap_irreducible", "g_tilde", "verify_carry_bridge", "all_ones_lengths",
+    "has_stride_111", "no111_exponent",
 ]
 
 
@@ -115,6 +118,22 @@ def factorizations(n):
     return frozenset(found or {(n,)})
 
 
+@lru_cache(maxsize=None)
+def lengths(n):
+    """The set of lengths of the factorisations of n >= 1 into irreducibles.
+
+    Computed on length sets, without listing the factorisations themselves.
+    """
+    if n < 1:
+        raise ValueError("need n >= 1")
+    k = v2(n)
+    odd = n >> k
+    if odd == 1:
+        return frozenset({k})
+    found = {x + y for d, c in _odd_splits(odd) for x in lengths(d) for y in lengths(c)}
+    return frozenset(k + x for x in found or {1})
+
+
 def odd_composites(nbits):
     """Set of all odd composites with at most nbits bits (a sieve by products).
 
@@ -161,3 +180,97 @@ def G(n):
         step = 2 << gap
         out += range(top | 1 << gap | 1, 2 * top, step)
     return sorted(out)
+
+
+def top_gap_irreducible(n):
+    """Top-Gap Lemma criterion: n odd, n >= 3 and 2 h <= d.
+
+    Here d = len(n) - 1 is the top bit and h < d the highest 1-bit below it.
+    Let n = a [x] b with a, b odd and > 1, and e = deg a + deg b <= d.  If
+    e < d, carries left the top column of the polynomial product, so columns
+    e..d of n are all 1 and h = d - 1 > d/2 (as d >= 3).  If e = d, the
+    second-highest term of the product sits in column
+    max(deg a + h_b, deg b + h_a) >= d/2 and stays occupied, so h >= d/2;
+    equality needs a = b = 1 + x^(d/2), whose square has h = d/2 + 1.
+    Hence every n passing this test is irreducible.
+    """
+    if n < 3 or n % 2 == 0:
+        return False
+    d = n.bit_length() - 1
+    return 2 * ((n ^ 1 << d).bit_length() - 1) <= d
+
+
+def g_tilde(v):
+    """G~_v = (2^(v-1) - 1) + 2^(2v-3) for v >= 2: weight v, irreducible (Top-Gap)."""
+    if v < 2:
+        raise ValueError("need v >= 2")
+    return (1 << v - 1) - 1 + (1 << 2 * v - 3)
+
+
+def verify_carry_bridge(u, v):
+    """True iff (2^u - 1) [x] G~_v = 2^(uv) - 1.  Holds for all u, v >= 2.
+
+    R_u * G~_v = R_u R_(v-1) + x^(2v-3) R_u.  The first block puts u (v - 1)
+    units on u + v - 2 columns; its (u - 1)(v - 2) spare units cover the
+    v - u - 1 empty columns below x^(2v-3) (if any), after which every column
+    is occupied: u v units in a row.
+    """
+    return emul((1 << u) - 1, g_tilde(v)) == (1 << u * v) - 1
+
+
+def all_ones_lengths(m):
+    """Exact length set of R_m = 2^m - 1 (m >= 1), by exhaustive factorisation.
+
+    Theorem: it is {1} for m prime and {2, ..., Omega(m)} for m composite.
+    Upper end: w is multiplicative and R_a [x] R_b = R_ab.  Every length j in
+    between: R_(p_1) [x] ... [x] R_(p_(j-1)) [x] G~_v with v = m / (p_1 ... p_(j-1)),
+    by the Carry-Bridge identity.
+    """
+    return lengths((1 << m) - 1)
+
+
+def has_stride_111(b, r):
+    """True iff b has 1-bits at three positions i - r, i, i + r.
+
+    No-111 Lemma: the largest cofactor b*(N) = max{b : (1 + x^r) [x] b = N}
+    never has such a triple, because in S
+        (1 + x^r)(x^(i-r) + x^i + x^(i+r)) = (1 + x^r)(x^(i-r) + x^(i+1) + x^(i+r))
+    (both sides are x^(i-r) (1 + 2 x^r + 2 x^(2r) + x^(3r)) after 2 x^k = x^k + x^(k+1)),
+    so moving the middle bit one place up keeps N and enlarges b.
+    """
+    return b & b >> r & b >> 2 * r != 0
+
+
+def no111_exponent():
+    """(x, theta, E): the optimum of the weighted No-111 bound on composites.
+
+    Binary strings without 111, weighted by x^(number of 1s), have growth rate
+    L(x), the positive root of L^3 = L^2 + x L + x^2.  An n-bit multiple of
+    1 + x^r of weight theta n is determined by a cofactor of weight theta n / 2
+    without 111 at stride r, so there are at most x^(-theta n / 2) L(x)^n of
+    them, and at most 2^(H(theta) n) by counting weights.  E is the common
+    exponent where the two bounds cross: C(n) <= 2^(E n + o(n)), E = 0.874665.
+    """
+    def growth(x):
+        lo, hi = 1.0, 2.0 + 2 * x
+        for _ in range(200):
+            mid = (lo + hi) / 2
+            lo, hi = (lo, mid) if mid ** 3 > mid * mid + x * mid + x * x else (mid, hi)
+        return (lo + hi) / 2
+
+    def density(x):  # x L'(x) / L(x): the density of 1s selected by the weight x
+        L = growth(x)
+        return x * (L + 2 * x) / (3 * L * L - 2 * L - x) / L
+
+    def rate(x):  # log2 of the growth rate of the no-111 strings of that density
+        return log2(growth(x)) - density(x) * log2(x)
+
+    def entropy(t):
+        return -t * log2(t) - (1 - t) * log2(1 - t)
+
+    lo, hi = 1e-6, 1.0
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if entropy(2 * density(mid)) > rate(mid) else (lo, mid)
+    x = (lo + hi) / 2
+    return x, 2 * density(x), rate(x)

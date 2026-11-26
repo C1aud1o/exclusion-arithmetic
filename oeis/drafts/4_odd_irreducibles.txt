@@ -17,12 +17,12 @@ The odd numbers > 1 that are not in A??????(odd_composites).
 The only even irreducible element is 2, which is also the only prime element. No term is prime in the semiring; for example 3 divides 5 [x] 7 = 63 = 3 [x] 21 but divides neither 5 nor 7.
 Contains every odd number with a prime number of 1's in binary (the odd terms of A052294), because the binary weight is multiplicative: A000120(b [x] c) = A000120(b)*A000120(c).
 Contains every odd m > 1 with 2*A007814(m-1) > A000523(m), that is, whose two lowest 1 bits are farther apart than half the position of its highest 1 bit (the gap between the two lowest 1 bits of b [x] c is the smaller of the gaps of b and c). There are 2^(floor(n/2)-1) such m with n binary digits.
-The terms have asymptotic density 1 among the odd numbers; see A??????(count_odd_composites).
+The terms have asymptotic density 1 among the odd numbers: at most 2^(0.8747*n + o(n)) of the 2^(n-2) odd numbers with n binary digits are composite.
 For the analogous notion in dismal (lunar, OR-numbral) base-2 arithmetic, where 1 + 1 = 1 replaces 1 + 1 = 1 + x, see A067139.
 
 LINKS
 Table of n, a(n) for n = 1..10000  [upload oeis/bfiles/b_odd_irreducibles.txt]
-<a href="https://github.com/c1aud1o/exclusion-arithmetic">exclusion-arithmetic: Python and C code, proofs and data</a>, GitHub repository.
+<a href="https://github.com/C1aud1o/exclusion-arithmetic">exclusion-arithmetic: Python and C code, proofs and data</a>, GitHub repository.
 <a href="/index/Bi#binary">Index entries for sequences related to binary expansion of n</a>
 
 EXAMPLE
@@ -53,7 +53,7 @@ def composites(nb):  # all odd composites below 2^nb
 print(sorted(set(range(3, 512, 2)) - composites(9)))
 
 CROSSREFS
-Cf. A000120, A000523, A007814, A052294, A067139, A??????(odd_composites) (complement in the odd numbers > 1), A??????(count_odd_composites), A??????(doubling), A??????(squares), A??????(multiples_of_5).
+Cf. A000120, A000523, A007814, A052294, A067139, A??????(odd_composites) (complement in the odd numbers > 1), A??????(doubling), A??????(squares).
 
 KEYWORD
 nonn,base

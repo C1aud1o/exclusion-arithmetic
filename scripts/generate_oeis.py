@@ -12,9 +12,12 @@ sequences, computing every term with the library, and checks that
     processes, reproduce the terms (PARI is skipped if `gp` is not installed).
 
 --cmax N   count composites up to N bits with the C engine (default 31;
-           N = 37 needs 8 GiB and about 7 minutes on 4 cores)
---a        A-numbers already assigned, e.g. --a doubling=A390001; unassigned
-           sequences appear as A??????(key) in the drafts of batch 2
+           N = 37 needs 8 GiB and about 7 minutes on 4 cores).  If the engine
+           cannot be built or run, the committed b-file of C(n) is reused.
+--a        A-numbers already assigned, e.g. --a doubling=A390001.  Batch 1
+           drafts never contain a placeholder; batch 2 drafts show the batch 1
+           numbers still missing as A??????(key) and mention other batch 2
+           sequences only once their numbers are given
 --online   also compare the cited OEIS entries with their b-files on oeis.org
 """
 
@@ -26,13 +29,14 @@ import subprocess
 import sys
 import urllib.request
 from math import ceil, floor, log2
-from verify_theorems import ROOT, engine
+from verify_theorems import ROOT, committed_counts, engine
 
 from exclusion import eadd, emul, v2, w
 from exclusion.automata import (
-    DFA5, count_odd, equivalent, is_multiple_of_3, is_multiple_of_5, multiples_dfa, odd_members, runs,
+    DFA5, count_odd, equivalent, growth_rate, is_multiple_of_3, is_multiple_of_5, multiples_dfa,
+    odd_members, runs,
 )
-from exclusion.factor import factorizations, odd_composites, quotients
+from exclusion.factor import factorizations, no111_exponent, odd_composites, quotients
 
 DATA_LIMIT = 260
 DEFINITION = (
@@ -67,6 +71,8 @@ def entropy(p):
 
 
 H = entropy(1 / 3)                       # = log2(3) - 2/3
+BATCH1 = ("doubling", "squares", "odd_composites")
+BOUNDS = {}                              # constants of the C(n) draft, filled in by check_facts
 LAMBDA5 = 1.0                            # real root of x^5 = x^4 + x^3 + 1, by bisection
 _hi = 2.0
 for _ in range(200):
@@ -108,7 +114,10 @@ def compute_terms(cmax):
         bits += 1
     C = engine(cmax)
     source = f"C engine, n <= {cmax}"
-    if C is None:
+    if C is None and len(committed_counts()) >= bits:
+        C = committed_counts()
+        source = f"committed b-file (C engine not available here), n <= {len(C)}"
+    elif C is None:
         C = [sum(1 for m in comp if m.bit_length() == n) for n in range(1, bits + 1)]
         source = f"Python sieve only (no C compiler), n <= {bits}"
     require(C[:bits] == [sum(1 for m in comp if m.bit_length() == n) for n in range(1, bits + 1)],
@@ -210,6 +219,32 @@ def check_facts(T, compset, bits):
     require(len(certified[0]) == 7 and equivalent(certified, DFA5), "D_5: certificate as described")
     require(abs(H - (log2(3) - 2 / 3)) < 1e-12 and entropy(2 / 9) < 0.7643 < H, "entropy constants")
     require(abs(D5[999] / D5[998] - LAMBDA5) < 1e-12 and LAMBDA5 > 1.7049, "growth rate of D_5")
+
+    # proved window for the exponent of C(n)
+    rates = {s: growth_rate(multiples_dfa(s)) for s in range(2, 7)}  # exact roots, a = 2^s + 1
+    gammas = {s: float(gam) for s, (lam, gam) in rates.items()}
+    carry = next(K for K in range(1, 7) if certifies(6, K))
+    dfa65 = multiples_dfa(6)
+    x, theta, E = no111_exponent()
+    require(abs(float(rates[2][0]) - LAMBDA5) < 1e-12 and all(gammas[s] < gammas[s + 1] for s in range(2, 6)),
+            "growth rates of the multiples of 2^s + 1")
+    require(all(d - 1 <= c for d, c in zip(count_odd(dfa65, len(C))[1:], C)), "D_65(n) - 1 <= C(n)")
+    require((f"{x:.6f}", f"{theta:.6f}", f"{E:.6f}") == ("0.808173", "0.705340", "0.874665")
+            and abs(entropy(theta) - E) < 1e-9 and entropy(1 / 4) < E, "No-111 optimum")
+    require(all(emul(1 | 1 << r, 1 | 1 << r | 1 << 2 * r) == emul(1 | 1 << r, eadd(1 | 1 << 2 * r, 2 << r))
+                for r in range(1, 60)), "No-111 exchange identity")
+    slope = log2(C[-1] / C[-2])
+    require(len(C) < 30 or slope < gammas[6], "local slope below the proved lower bound")
+    BOUNDS.update(gammas=gammas, lam65=float(rates[6][0]), states65=len(dfa65[0]), carry65=carry,
+                  x=x, theta=theta, E=E, slope=slope)
+
+
+def certifies(s, K):
+    try:
+        multiples_dfa(s, max_carry=K)
+    except ValueError:
+        return False
+    return True
 
 
 def cross_check_online():
@@ -361,8 +396,16 @@ def offset(first_index, terms):
 
 
 def build_drafts(T, A, repo):
-    def ref(key):
+    def ref(key):  # a batch 1 number: it exists by the time batch 2 is submitted
+        assert key in BATCH1
         return A.get(key, f"A??????({key})")
+
+    def also(me, *keys):  # other batch 2 sequences: cited only once their numbers are known
+        given = [A[k] for k in keys if k != me and k in A]
+        return (", " + ", ".join(given)) if given else ""
+
+    batch2 = [k for k in T if k not in BATCH1]
+    B = BOUNDS
 
     links = [
         f'<a href="{repo}">exclusion-arithmetic: Python and C code, proofs and data</a>, GitHub repository.',
@@ -478,7 +521,9 @@ f"digits is at most (n + o(1))*2^(H*n) with H = log_2(3) - 2/3 = {trunc(H, 4)}, 
             "are farther apart than half the position of its highest 1 bit (the gap between the two "
             "lowest 1 bits of b [x] c is the smaller of the gaps of b and c). There are 2^(floor(n/2)-1) "
             "such m with n binary digits.",
-            f"The terms have asymptotic density 1 among the odd numbers; see {ref('count_odd_composites')}.",
+            "The terms have asymptotic density 1 among the odd numbers: at most "
+            f"2^({ceil(B['E'] * 1e4) / 1e4}*n + o(n)) of the 2^(n-2) odd numbers with n binary digits are "
+            "composite" + (f"; see {A['count_odd_composites']}." if "count_odd_composites" in A else "."),
             "For the analogous notion in dismal (lunar, OR-numbral) base-2 arithmetic, where 1 + 1 = 1 "
             "replaces 1 + 1 = 1 + x, see A067139.",
         ],
@@ -490,8 +535,8 @@ f"digits is at most (n + o(1))*2^(H*n) with H = log_2(3) - 2/3 = {trunc(H, 4)}, 
             "15 = 3 [x] 3 and 27 = 3 [x] 9 are not terms.",
         ],
         crossrefs=f"Cf. A000120, A000523, A007814, A052294, A067139, {ref('odd_composites')} (complement in "
-                  f"the odd numbers > 1), {ref('count_odd_composites')}, {ref('doubling')}, {ref('squares')}, "
-                  f"{ref('multiples_of_5')}.",
+                  f"the odd numbers > 1), {ref('doubling')}, {ref('squares')}"
+                  f"{also('odd_irreducibles', *batch2)}.",
         keywords="nonn,base",
     )
     drafts["count_odd_composites"] = dict(
@@ -502,21 +547,38 @@ f"digits is at most (n + o(1))*2^(H*n) with H = log_2(3) - 2/3 = {trunc(H, 4)}, 
             DEFINITION,
             f"a(n) is the number of terms m of {ref('odd_composites')} with 2^(n-1) < m < 2^n. Even numbers "
             "are composite if and only if they are >= 4, so only odd elements are counted.",
-            f"Proved bounds: {ref('multiples_of_5')}(n) <= a(n) for n >= 4 (every multiple of 5 other "
-"than 5 itself is composite), and a(n) <= (n + o(1))*2^(H*n) with H = log_2(3) - 2/3 = "
-            f"{trunc(H, 7)}, the binary entropy of 1/3. Hence lim inf a(n)^(1/n) >= {trunc(LAMBDA5, 7)} "
-            f"(the real root of x^5 = x^4 + x^3 + 1) and lim sup a(n)^(1/n) <= 2^H = {trunc(2 ** H, 4)}, "
-            "so the proportion a(n)/2^(n-2) of composites among the odd n-digit numbers tends to 0 "
-            "exponentially fast.",
-            "Sketch of the upper bound: the binary weight is multiplicative, so an odd composite with n "
-            "digits and weight W either has W >= 2n/3, or is b [x] c with b of weight 2 and c of weight "
-            "W/2 < n/3, or is b [x] c with b of weight less than sqrt(n) and c of weight less than 2n/9. "
-            "There are at most 2^(H*n) numbers of the first kind, n*2^(H*n) of the second and "
-            f"2^({ceil(entropy(2 / 9) * 1e4) / 1e4}*n + o(n)) of the third.",
+            f"Proved bounds: {trunc(B['gammas'][6], 4)[:-3]} <= lim inf log_2(a(n))/n and "
+            f"lim sup log_2(a(n))/n <= {ceil(B['E'] * 1e4) / 1e4}. In particular the proportion a(n)/2^(n-2) "
+            "of composites among the odd n-digit numbers tends to 0 exponentially fast.",
+            "Lower bound: every multiple of d other than d itself is composite, so a(n) >= D_d(n) - 1, where "
+            "D_d(n) is the number of odd multiples of d with n binary digits. For d = 2^s + 1 the "
+            "multiples form a regular language; this is certified by a finite computation showing that "
+            "the outputs of the multiplication transducer with carries <= K coincide with those of an "
+            "abstraction that remembers larger carries only modulo 2. For d = 65 (s = 6, K = "
+            f"{B['carry65']}) the minimal automaton has {B['states65']} states and D_65(n) grows like r^n "
+            f"with r = {trunc(B['lam65'], 6)}, log_2(r) = {trunc(B['gammas'][6], 6)} For d = 5, 9, 17, 33 "
+            f"the exponents are {', '.join(trunc(B['gammas'][s], 6)[:-3] for s in (2, 3, 4, 5))}"
+            + (f" (d = 5: {A['multiples_of_5']})." if "multiples_of_5" in A else "."),
+            "Upper bound: let N = b [x] c be an odd composite with n binary digits, with binary weights "
+            "wt(b) <= wt(c). If wt(b) = 2 then b = 1 + 2^r, and c may be taken to be the largest cofactor "
+            "of N. This cofactor never has three 1's at positions i - r, i, i + r, because "
+            "(1 + x^r)*(x^(i-r) + x^i + x^(i+r)) = (1 + x^r)*(x^(i-r) + x^(i+1) + x^(i+r)) in the semiring "
+            "and moving the middle 1 one place up increases c. Binary words without three consecutive "
+            "1's, each 1 weighted by t, grow like L(t)^n, where L^3 = L^2 + t*L + t^2 (a weighted "
+            "tribonacci recurrence); hence there are at most t^(-W/2)*L(t)^n such N of weight W, and at "
+            "most binomial(n, W) numbers of weight W in all. The two bounds balance at W/n = "
+            f"{trunc(B['theta'], 6)}, t = {trunc(B['x'], 6)}, where both equal 2^(E*n) with E = "
+            f"{trunc(B['E'], 6)} If wt(b) >= 3, counting weights alone gives at most 2^(H(1/4)*n + o(n)) "
+            f"composites, H(1/4) = {trunc(entropy(1 / 4), 6)} being the binary entropy of 1/4.",
+            "The computed terms are still far from the asymptotic regime: log_2(a(n)/a(n-1)) is about "
+            f"{B['slope']:.3f} at n = {len(C)}, below the proved lower bound, because the multiples of "
+            "2^s + 1 with large s, which dominate eventually, are still rare at this size.",
             f"Terms a(1)..a({len(C)}) were computed by an exhaustive sieve over all products; see the link.",
         ],
         formula=[
-            f"a(n) = 2^(n-2) - (number of terms of {ref('odd_irreducibles')} with n binary digits), for n >= 2.",
+            "a(n) = 2^(n-2) - (number of odd irreducible elements with n binary digits"
+            + (f", see {A['odd_irreducibles']}" if "odd_irreducibles" in A else "") + "), for n >= 2.",
+            f"a(n) <= 2^({ceil(B['E'] * 1e6) / 1e6}*n + o(n)).",
         ],
         example=[
             "a(4) = 1: 15 = 1111_2 = 3 [x] 3.",
@@ -524,8 +586,8 @@ f"digits is at most (n + o(1))*2^(H*n) with H = log_2(3) - 2/3 = {trunc(H, 4)}, 
             "a(6) = 3: 45, 51, 63.",
             "a(7) = 8: 85, 89, 95, 99, 111, 119, 123, 125.",
         ],
-        crossrefs=f"Cf. {ref('odd_composites')}, {ref('odd_irreducibles')}, {ref('multiples_of_5')}, "
-                  f"{ref('doubling')}, {ref('squares')}.",
+        crossrefs=f"Cf. A000120, {ref('odd_composites')}, {ref('doubling')}, {ref('squares')}"
+                  f"{also('count_odd_composites', *batch2)}.",
         keywords="nonn,base,more",
     )
     drafts["multiples_of_5"] = dict(
@@ -548,8 +610,10 @@ f"digits is at most (n + o(1))*2^(H*n) with H = log_2(3) - 2/3 = {trunc(H, 4)}, 
             "whose minimal automaton has 7 states and accepts exactly the words described above; see "
 "the link. The counts were also confirmed by direct enumeration of all products for n <= "
             f"{len(C)}.",
-            f"a(n) <= {ref('count_odd_composites')}(n) for n >= 4, since every multiple of 5 other than "
-            "5 itself is composite; a(3) = 1 counts 5 itself.",
+            "For n >= 4, a(n) is at most the number of odd composites with n binary digits (the terms "
+            f"of {ref('odd_composites')} between 2^(n-1) and 2^n"
+            + (f"; {A['count_odd_composites']}" if "count_odd_composites" in A else "")
+            + "), since every multiple of 5 other than 5 itself is composite; a(3) = 1 counts 5 itself.",
             "The corresponding count for multiples of 3 = 1 + x (odd numbers with n binary digits in "
             "which every run of 1's has even length, cf. A277335) is Fibonacci(n-3) = A000045(n-3) for n >= 3.",
         ],
@@ -567,8 +631,8 @@ f"a(n) ~ c*r^n, where r = {trunc(LAMBDA5, 10)} is the real root of x^5 = x^4 + x
         ],
         links=['<a href="/index/Rec#order_05">Index entries for linear recurrences with constant coefficients</a>, '
                "signature (1,1,0,0,1)."],
-        crossrefs=f"Cf. A000045, A277335, {ref('count_odd_composites')}, {ref('odd_composites')}, "
-                  f"{ref('odd_irreducibles')}, {ref('doubling')}, {ref('squares')}.",
+        crossrefs=f"Cf. A000045, A277335, {ref('odd_composites')}, {ref('doubling')}, {ref('squares')}"
+                  f"{also('multiples_of_5', *batch2)}.",
         keywords="nonn,base,easy",
     )
     for d in drafts.values():
@@ -610,7 +674,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--cmax", type=int, default=31)
     ap.add_argument("--a", action="append", default=[], metavar="KEY=A123456")
-    ap.add_argument("--repo", default="https://github.com/c1aud1o/exclusion-arithmetic")
+    ap.add_argument("--repo", default="https://github.com/C1aud1o/exclusion-arithmetic")
     ap.add_argument("--online", action="store_true")
     args = ap.parse_args()
 
@@ -642,7 +706,9 @@ def main():
         back = [int(line.split()[1]) for line in bfile.splitlines()]
         require(back[: len(shown)] == shown and back == terms, f"{key}: b-file does not match DATA")
         pending = "A??????" in text
-        ready = "needs A-numbers (--a)" if pending else "READY"
+        require(not (pending and d["batch"] == 1), f"{key}: placeholder in a batch 1 draft")
+        require(set(re.findall(r"A\?{6}\((\w+)\)", text)) <= set(BATCH1), f"{key}: placeholder for a batch 2 number")
+        ready = "needs the batch 1 A-numbers (--a)" if pending else "READY"
         print(f"{index} {key:21} {d['batch']:^5} {offset(d['start'], terms):6} "
               f"{len(terms):6d} terms  {len(shown):3d} terms  {programs[key]}; {ready}")
         print(f"    first 12: {', '.join(map(str, terms[:12]))}")

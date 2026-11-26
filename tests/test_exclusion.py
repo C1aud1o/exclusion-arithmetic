@@ -1,5 +1,6 @@
 """Test suite for Exclusion Arithmetic.  Run with `pytest` from the repo root."""
 
+import math
 import os
 import random
 import shutil
@@ -12,12 +13,14 @@ import pytest
 
 from exclusion import eadd, emul, epow, g, normalize, v2, w
 from exclusion.automata import (
-    DFA3, DFA5, accepts, count_odd, equivalent, is_multiple_of_3,
-    is_multiple_of_5, multiples_dfa, odd_members, runs, _tabulate, _step5, _accept5,
+    DFA3, DFA5, accepts, count_odd, dominant_root, equivalent, growth_rate,
+    is_multiple_of_3, is_multiple_of_5, multiples_dfa, odd_members, rational_gf, runs,
+    _tabulate, _step5, _accept5,
 )
 from exclusion.factor import (
-    G, divides, divisors, factorizations, gap_irreducible, is_composite,
-    is_irreducible, odd_composites, quotients,
+    G, all_ones_lengths, divides, divisors, factorizations, g_tilde, gap_irreducible,
+    has_stride_111, is_composite, is_irreducible, lengths, no111_exponent,
+    odd_composites, quotients, top_gap_irreducible, verify_carry_bridge,
 )
 
 rng = random.Random(20261126)
@@ -71,7 +74,7 @@ def rewrite_randomly(coefficients):
         c[k + 1] += 1
 
 
-# --- Theorem 1: normal forms and the semiring ---------------------------------
+# --- Theorem 1: normal forms, the semiring, universal maps ---------------------
 
 def test_small_values():
     assert [eadd(n, n) for n in range(12)] == [0, 3, 6, 15, 12, 15, 30, 63, 24, 27, 30, 63]
@@ -148,7 +151,7 @@ def test_superadditive_length():
         assert emul(a, b).bit_length() >= a.bit_length() + b.bit_length() - 1
 
 
-# --- Theorem 2: w, v2, gap, finite quotients ----------------------------------
+# --- Theorem 1 (continued): w, v2, gap, finite quotients -----------------------
 
 def test_weight_is_a_homomorphism_to_N():
     for a, b in product(range(200), repeat=2):
@@ -185,7 +188,7 @@ def test_truncation_mod_2_to_the_m_is_a_congruence():
         assert emul(a, b) % q == emul(a % q, b % q) % q
 
 
-# --- Theorem 3: factorisation, the unique prime -------------------------------
+# --- Theorem 2: the unique prime, irreducibility lemmas, length sets -----------
 
 def test_quotients_and_divisors_against_brute_force():
     limit = 128
@@ -262,7 +265,7 @@ def test_repunits_multiply_like_integers():
         assert emul(ones(a), ones(b)) == ones(a * b)
 
 
-# --- Theorem 4: Gap Lemma, elasticity ------------------------------------------
+# --- Theorem 2 (continued): Gap Lemma, Top-Gap Lemma, Carry-Bridge, elasticity ---
 
 def test_gap_lemma_G_n_is_irreducible():
     composites = odd_composites(16)
@@ -293,7 +296,52 @@ def test_unbounded_elasticity():
     assert (7, 57) in fs and (3, 3, 7) in fs
 
 
-# --- Theorem 5: multiples of 3 and of 5 -----------------------------------------
+def test_top_gap_lemma_sharpened():
+    composites = odd_composites(16)
+    flagged = [n for n in range(3, 1 << 16, 2) if top_gap_irreducible(n)]
+    assert len(flagged) == 509 and not composites.intersection(flagged)
+    assert all(is_irreducible(n) for n in flagged if n < 1 << 12)
+    # 2h <= d cannot be relaxed to 2h <= d + 2: (1 + x^k)^2 = 1 + x^k + x^(k+1) + x^(2k).
+    for k in range(2, 12):
+        n = emul(1 | 1 << k, 1 | 1 << k)
+        d = n.bit_length() - 1
+        assert 2 * ((n ^ 1 << d).bit_length() - 1) == d + 2 and not top_gap_irreducible(n)
+    assert not any(top_gap_irreducible(n) for n in (0, 1, 2, 6, 15, 27, 29))
+    assert all(top_gap_irreducible(n) for n in (3, 5, 7, 9, 11, 17, 19, 39))
+
+
+def test_g_tilde_and_carry_bridge():
+    composites = odd_composites(16)
+    assert [g_tilde(v) for v in range(2, 7)] == [3, 11, 39, 143, 543]
+    for v in range(2, 200):
+        assert w(g_tilde(v)) == v and top_gap_irreducible(g_tilde(v))
+    assert not composites.intersection(g_tilde(v) for v in range(2, 10))
+    assert all(verify_carry_bridge(u, v) for u, v in product(range(2, 51), repeat=2))
+    assert not verify_carry_bridge(1, 5)  # u >= 2 is needed
+    with pytest.raises(ValueError):
+        g_tilde(1)
+
+
+def test_length_sets_of_all_ones():
+    def predicted(m):  # {1} for m prime, {2, ..., Omega(m)} otherwise
+        omega, k, p = 0, m, 2
+        while k > 1:
+            while k % p == 0:
+                omega, k = omega + 1, k // p
+            p += 1
+        return {1} if omega == 1 else set(range(2, omega + 1))
+
+    for m in range(2, 17):
+        assert all_ones_lengths(m) == predicted(m)
+    assert all_ones_lengths(8) == {2, 3} and all_ones_lengths(16) == {2, 3, 4}
+    for n in range(1, 400):  # lengths() agrees with the listed factorisations
+        assert lengths(n) == {len(f) for f in factorizations(n)}
+    # One-line infinite elasticity: R_(2^k) = 3^k = 3 [x] G~_(2^(k-1)).
+    for k in range(2, 9):
+        assert epow(3, k) == emul(3, g_tilde(1 << k - 1)) == ones(1 << k)
+
+
+# --- Theorem 3: multiples of a fixed element form a regular language -------------
 
 def odd_multiples_by_length(a, nmax):
     """sets[n] = odd n-bit multiples of a, from the products a [x] b themselves."""
@@ -391,7 +439,90 @@ def test_multiples_of_9_and_17_are_regular_too():
         assert count_odd(dfa, 16) == [len(x) for x in sets]
 
 
-# --- Theorem 6: the C engine -----------------------------------------------------
+def test_exact_growth_rates_of_the_multiples_of_1_plus_2_to_the_r():
+    expected = {1: "0.694241", 2: "0.769689", 3: "0.791046", 4: "0.799703", 5: "0.803880"}
+    orders = {1: 2, 2: 5, 3: 18, 4: 50, 5: 172}
+    for r, digits in expected.items():
+        dfa = multiples_dfa(r)
+        counts = count_odd(dfa, 4 * len(dfa[0]) + 40)
+        num, den = rational_gf(counts)
+        assert len(den) - 1 == orders[r]
+        lam, gamma = growth_rate(dfa)
+        assert str(gamma).startswith(digits)
+        assert abs(float(lam) - counts[-1] / counts[-2]) < 1e-9
+    assert rational_gf(count_odd(DFA5, 40)) == ([0, 0, 0, 1, 0, -1], [1, -1, -1, 0, 0, -1])
+    assert rational_gf(count_odd(multiples_dfa(3), 100)) == (
+        [0, 0, 0, 0, 1, 0, 0, -1, 0, -1, -1, 0, 2, 2, -1, 0, -1, 1, -1],
+        [1, -1, -1, -1, 1, 0, 1, -2, -1, 0, 2, 2, 0, -1, -1, 0, -1, 0, -1],
+    )
+    assert str(dominant_root([1, -1, -1])).startswith("1.61803398874989484820")
+    with pytest.raises(ValueError):
+        rational_gf(count_odd(multiples_dfa(3), 30))  # too few terms for order 18
+
+
+def test_multiples_are_supermultiplicative():
+    # N1 (i bits) and N2 (j bits) multiples => N1 + 2^i N2 is one: gamma_a exists (Fekete).
+    for r in (1, 2, 3, 4):
+        D = count_odd(multiples_dfa(r), 60)
+        assert all(D[i + j] >= D[i] * D[j] for i in range(1, 31) for j in range(1, 31))
+
+
+# --- Theorem 4: density of the composites; the C engine ---------------------------
+
+def exchange(b, r):
+    """Move the middle bit of the highest stride-r triple of b one place up, and normalise."""
+    i = (b & b >> r & b >> 2 * r).bit_length() - 1 + r
+    return eadd(b ^ 1 << i, 2 << i)
+
+
+def test_no_111_in_the_maximal_cofactor():
+    nmax = 18
+    total = 0
+    for r in range(1, 9):
+        a, best = 1 | 1 << r, {}
+        for b in range(1, 1 << nmax - r, 2):
+            p = emul(a, b)
+            if p.bit_length() <= nmax:
+                best[p] = max(best.get(p, 0), b)
+                if has_stride_111(b, r) and b < 1 << 11:
+                    c = exchange(b, r)  # the algebraic exchange: same product, larger cofactor
+                    assert c > b and emul(a, c) == p
+        assert not any(has_stride_111(b, r) for b in best.values())
+        if r == 1:  # for 3 the maximal cofactor is fibbinary: N = 3 b*
+            assert all(b & b >> 1 == 0 and 3 * b == p for p, b in best.items())
+        total += len(best)
+    assert total == 13154
+    assert has_stride_111(0b10101, 2) and not has_stride_111(0b10101, 1)
+    # the exchange is an identity of S: (1+x^r)(1+x^r+x^2r) = (1+x^r)(1+x^(r+1)+x^2r)
+    for r in range(1, 40):
+        a = 1 | 1 << r
+        assert emul(a, 1 | 1 << r | 1 << 2 * r) == emul(a, eadd(1 | 1 << 2 * r, 2 << r))
+
+
+def test_weighted_no_111_upper_bound():
+    x, theta, E = no111_exponent()
+    assert (f"{x:.6f}", f"{theta:.6f}", f"{E:.6f}") == ("0.808173", "0.705340", "0.874665")
+
+    def H(t):
+        return -t * math.log2(t) - (1 - t) * math.log2(1 - t)
+
+    assert abs(H(theta) - E) < 1e-9                          # the two bounds cross at theta
+    assert abs(H(1 / 4) - 0.811278) < 1e-6 < E - H(1 / 4)    # composites without a weight-2 factor
+    # exact counts: strings of length L without 111, by weight, against the entropy bound
+    L = 600
+    by_tail = [[1], [0], [0]]
+    for k in range(1, L + 1):
+        z = [p + q + s for p, q, s in zip(*[t + [0] * (k + 1 - len(t)) for t in by_tail])]
+        by_tail = [z, [0] + by_tail[0], [0] + by_tail[1]]
+    no111 = [p + q + s for p, q, s in zip(*[t + [0] * (L + 2 - len(t)) for t in by_tail])]
+    best = max(min(math.comb(L, W), no111[W // 2]) for W in range(2, L, 2))
+    assert E - 0.01 < math.log2(best) / L < E
+    # lower bound from the certified automaton for a = 65, upper bound E
+    gamma65 = float(growth_rate(multiples_dfa(6))[1])
+    assert f"{gamma65:.6f}" == "0.806113" and gamma65 < E
+
+
+# --- the C engine -----------------------------------------------------------------
 
 @pytest.fixture(scope="module")
 def engine(tmp_path_factory):

@@ -20,7 +20,7 @@ a(n) has at least 2*L - 1 binary digits, where L is the number of binary digits 
 
 LINKS
 Table of n, a(n) for n = 0..10000  [upload oeis/bfiles/b_squares.txt]
-<a href="https://github.com/c1aud1o/exclusion-arithmetic">exclusion-arithmetic: Python and C code, proofs and data</a>, GitHub repository.
+<a href="https://github.com/C1aud1o/exclusion-arithmetic">exclusion-arithmetic: Python and C code, proofs and data</a>, GitHub repository.
 <a href="/index/Bi#binary">Index entries for sequences related to binary expansion of n</a>
 
 FORMULA

@@ -18,17 +18,20 @@ binary expansions. Everything in `drafts/` and `bfiles/` is written by
 **Batch 1** (sequences 1-3) cites only entries that already exist in the OEIS
 and can be submitted as it stands.
 
-**Batch 2** (sequences 4-6) cites batch 1 and each other. The drafts show the
-missing numbers as `A??????(key)`. Once numbers are assigned (the submission
-form allocates an A-number as soon as a draft is created), regenerate:
+**Batch 2** (sequences 4-6) cites batch 1. The drafts show the batch 1 numbers
+still missing as `A??????(key)`, and nothing else: another batch 2 sequence is
+mentioned only once its own number is passed with `--a`. Once batch 1 has its
+numbers (the submission form allocates an A-number as soon as a draft is
+created), regenerate:
 
     python scripts/generate_oeis.py --cmax 37 \
-        --a doubling=A3xxxxx --a squares=A3xxxxx --a odd_composites=A3xxxxx \
-        --a odd_irreducibles=A3xxxxx --a count_odd_composites=A3xxxxx --a multiples_of_5=A3xxxxx
+        --a doubling=A3xxxxx --a squares=A3xxxxx --a odd_composites=A3xxxxx
 
-With all six numbers given, the batch 1 drafts also gain a
-"Sequences from the same semiring" cross-reference line; add it to the
-published batch 1 entries by an ordinary edit.
+and, as the batch 2 numbers are allocated, add
+`--a odd_irreducibles=A3xxxxx --a count_odd_composites=A3xxxxx --a multiples_of_5=A3xxxxx`
+to make the batch 2 drafts cite each other. With all six numbers given, the
+batch 1 drafts also gain a "Sequences from the same semiring" cross-reference
+line; add it to the published batch 1 entries by an ordinary edit.
 
 ## Checklist for each sequence
 
@@ -61,6 +64,11 @@ published batch 1 entries by an ordinary edit.
 * **b-files.** 10001 terms (n = 0..10000) for sequences 1-2, 10000 terms for
   3-4, every computed term for C(n), and n = 1..1000 for D_5 (from the
   certified automaton; equal to the brute-force counts as far as those reach).
+* **Bounds quoted for C(n).** The draft of C(n) states the proved window
+  0.8061 <= lim inf, lim sup <= 0.8747 for log_2(a(n))/n, with a sketch of each
+  side: the certified automaton for the multiples of 65 (lower) and the No-111
+  lemma with the weighted tribonacci/entropy trade-off (upper). The generator
+  recomputes both constants and refuses to write the draft if they change.
 * **Novelty.** On 2026-11-26 a search of the OEIS for the leading terms of each
   of the six sequences returned no match.
 * **Existing entries cited**, each compared with its definition by the
