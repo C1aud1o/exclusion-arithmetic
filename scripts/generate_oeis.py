@@ -12,8 +12,10 @@ sequences, computing every term with the library, and checks that
     processes, reproduce the terms (PARI is skipped if `gp` is not installed).
 
 --cmax N   count composites up to N bits with the C engine (default 31;
-           N = 37 needs 8 GiB and about 7 minutes on 4 cores).  If the engine
-           cannot be built or run, the committed b-file of C(n) is reused.
+           N = 37 needs 8 GiB and about 7 minutes on 4 cores).  The committed
+           b-file of C(n) is never shortened: if it has more than N terms they
+           are kept, after checking that the engine reproduces the first N.
+           If the engine cannot be built or run, the committed b-file is reused.
 --a        A-numbers already assigned, e.g. --a doubling=A390001.  Batch 1
            drafts never contain a placeholder; batch 2 drafts show the batch 1
            numbers still missing as A??????(key) and mention other batch 2
@@ -112,14 +114,20 @@ def compute_terms(cmax):
         if len(comp) >= 10000 and len(irr) >= 10000:
             break
         bits += 1
+    committed = committed_counts()
+    BOUNDS["cmax"] = cmax  # the engine is never asked for more than this, whatever the b-file holds
     C = engine(cmax)
     source = f"C engine, n <= {cmax}"
-    if C is None and len(committed_counts()) >= bits:
-        C = committed_counts()
+    if C is None and len(committed) >= bits:
+        C = committed
         source = f"committed b-file (C engine not available here), n <= {len(C)}"
     elif C is None:
         C = [sum(1 for m in comp if m.bit_length() == n) for n in range(1, bits + 1)]
         source = f"Python sieve only (no C compiler), n <= {bits}"
+    elif len(committed) > len(C):  # never shorten the table: keep the terms computed earlier
+        require(committed[: len(C)] == C, "C engine disagrees with the committed b-file of C(n)")
+        C = committed
+        source = f"C engine, n <= {cmax}, equal to the committed b-file, whose {len(C)} terms are kept"
     require(C[:bits] == [sum(1 for m in comp if m.bit_length() == n) for n in range(1, bits + 1)],
             "C engine and Python sieve disagree")
     D5 = count_odd(DFA5, 1000)[1:]
@@ -209,8 +217,8 @@ def check_facts(T, compset, bits):
     require([m for m in sorted(compset) if m < 128] == [15, 27, 29, 45, 51, 63, 85, 89, 95, 99, 111, 119, 123, 125],
             "C(n): examples")
     require(all(D5[n - 1] == D5[n - 2] + D5[n - 3] + D5[n - 6] for n in range(6, 1001)), "D_5 recurrence")
-    D5c = engine(len(C), 5)
-    require(D5c is None or D5c == D5[: len(C)], "D_5: C engine vs automaton")
+    D5c = engine(BOUNDS["cmax"], 5)
+    require(D5c is None or D5c == D5[: len(D5c)], "D_5: C engine vs automaton")
     require(odd_members(DFA5, 6) == [45, 63] and emul(5, 9) == 45 and emul(5, 7) == 63 == emul(5, 11)
             and runs(45) == ([1, 2, 1], [1, 1]), "D_5: example")
     require([m for m in range(1, 64, 2) if is_multiple_of_5(m)] == [5, 15, 29, 45, 63], "D_5: small multiples")
@@ -557,7 +565,7 @@ f"digits is at most (n + o(1))*2^(H*n) with H = log_2(3) - 2/3 = {trunc(H, 4)}, 
             "abstraction that remembers larger carries only modulo 2. For d = 65 (s = 6, K = "
             f"{B['carry65']}) the minimal automaton has {B['states65']} states and D_65(n) grows like r^n "
             f"with r = {trunc(B['lam65'], 6)}, log_2(r) = {trunc(B['gammas'][6], 6)} For d = 5, 9, 17, 33 "
-            f"the exponents are {', '.join(trunc(B['gammas'][s], 6)[:-3] for s in (2, 3, 4, 5))}"
+            f"the exponents are {', '.join(f'{B['gammas'][s]:.6f}' for s in (2, 3, 4, 5))}"
             + (f" (d = 5: {A['multiples_of_5']})." if "multiples_of_5" in A else "."),
             "Upper bound: let N = b [x] c be an odd composite with n binary digits, with binary weights "
             "wt(b) <= wt(c). If wt(b) = 2 then b = 1 + 2^r, and c may be taken to be the largest cofactor "
@@ -701,9 +709,12 @@ def main():
         require(text.isascii() and "\\boxplus" not in text and "$" not in text, f"{key}: non-ASCII or TeX in draft")
         require(len(data) <= DATA_LIMIT and shown == terms[: len(shown)], f"{key}: DATA line")
         require(len(terms) >= 1000 or key == "count_odd_composites", f"{key}: b-file shorter than 1000 terms")
-        (ROOT / "oeis" / "drafts" / f"{index}_{key}.txt").write_text(text)
-        (ROOT / "oeis" / "bfiles" / f"b_{key}.txt").write_text(bfile)
-        back = [int(line.split()[1]) for line in bfile.splitlines()]
+        draft_path = ROOT / "oeis" / "drafts" / f"{index}_{key}.txt"
+        bfile_path = ROOT / "oeis" / "bfiles" / f"b_{key}.txt"
+        draft_path.write_text(text, encoding="utf-8", newline="\n")  # LF on every platform
+        bfile_path.write_text(bfile, encoding="utf-8", newline="\n")
+        require(b"\r" not in draft_path.read_bytes() + bfile_path.read_bytes(), f"{key}: CR in a written file")
+        back = [int(line.split()[1]) for line in bfile_path.read_text(encoding="utf-8").splitlines()]
         require(back[: len(shown)] == shown and back == terms, f"{key}: b-file does not match DATA")
         pending = "A??????" in text
         require(not (pending and d["batch"] == 1), f"{key}: placeholder in a batch 1 draft")

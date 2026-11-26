@@ -537,6 +537,10 @@ def engine(tmp_path_factory):
         out = subprocess.run([str(exe), *map(str, args)], check=True, capture_output=True, text=True)
         return [int(line.split()[1]) for line in out.stdout.splitlines()]
 
+    try:
+        run(1)  # the build is fine; can the binary be launched at all?
+    except OSError as error:  # e.g. WinError 4551: an application-control policy blocks fresh binaries
+        pytest.skip(f"C engine built but the system refuses to run it: {error}")
     return run
 
 

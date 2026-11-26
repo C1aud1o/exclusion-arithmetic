@@ -61,6 +61,13 @@ line; add it to the published batch 1 entries by an ordinary edit.
   shift; and the index is the bit length, as for C(n), so the bound
   D_5(n) <= C(n) for n >= 4 compares equal indices. The zeros are genuine
   values: no multiple of 5 has fewer than three binary digits.
+* **Line ends.** Drafts and b-files are written with LF line ends on every
+  platform, and `.gitattributes` keeps them so in a Windows checkout, so a
+  b-file can be uploaded from any machine as it is.
+* **Length of C(n).** The generator never shortens the committed b-file of
+  C(n): run with a `--cmax` below the number of committed terms, it checks the
+  engine against them and keeps them all. Extending the table needs
+  `--cmax N` with N larger than the committed length.
 * **b-files.** 10001 terms (n = 0..10000) for sequences 1-2, 10000 terms for
   3-4, every computed term for C(n), and n = 1..1000 for D_5 (from the
   certified automaton; equal to the brute-force counts as far as those reach).

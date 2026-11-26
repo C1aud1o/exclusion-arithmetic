@@ -1,0 +1,2 @@
+# LF everywhere, also in a Windows checkout: OEIS b-files must not carry CR.
+* text=auto eol=lf
