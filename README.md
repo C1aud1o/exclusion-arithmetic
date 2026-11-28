@@ -11,8 +11,8 @@ them in base 2 ($x \mapsto 2$) puts a new sum $\boxplus$ and product $\boxtimes$
 on $\mathbb{N}_0$.
 
 This repository contains a dependency-free Python reference implementation, an
-optional C sieve, a test suite, scripts that re-derive every number quoted
-below, and a ready-to-submit [OEIS package](oeis/README.md).
+optional C sieve, a test suite, and a script that re-checks the theorems and
+re-derives the tables below.
 
 ## Definition
 
@@ -209,9 +209,8 @@ $\binom{n}{k}\binom{n}{W/k}$ pairs, and
 $\min\bigl(\binom{n}{W}, \binom{n}{W/k}\bigr) \le 2^{H(1/(k+1)) n} \le 2^{H(1/4) n}$. $\square$
 
 The weight count alone, without the No-111 Lemma, gives the elementary bound
-$C(n) \le (n + o(1)) 2^{H(1/3) n}$, $H(1/3) = 0.918296$, which is the one
-quoted in the OEIS draft of the odd composites. The verification script also
-evaluates the exact finite bound $U(n) \ge C(n)$ behind (c) for every
+$C(n) \le (n + o(1)) 2^{H(1/3) n}$, $H(1/3) = 0.918296$. The verification
+script also evaluates the exact finite bound $U(n) \ge C(n)$ behind (c) for every
 $n \le 37$ ($U(37)/C(37) = 19.6$).
 
 ## Tables
@@ -311,36 +310,16 @@ word size to overflow.
 |---|---|---|
 | `pytest` | 39 tests: semiring axioms, Lindley vs. bitwise carry propagation, big-integer product vs. shift-and-add, $w$, $v_2$, $g$, quotients mod $2^m$, factorisation, Gap and Top-Gap Lemmas, Carry-Bridge, length sets of $2^m - 1$, multiples of 3, 5, 9, 17 and their exact growth rates, No-111 and the weighted upper bound, the C engine | 20 s |
 | `python scripts/verify_theorems.py` | checks Theorems 1-4 and prints all tables (audit of Theorem 3 for $n \le 24$, $C(n)$ for $n \le 31$) | 90 s |
-| `python scripts/generate_oeis.py` | writes `oeis/drafts`, `oeis/bfiles`; runs the Python and PARI programs of every draft | 12 s |
-| `python scripts/generate_oeis.py --cmax 37` | the same with $C(n)$ up to $n = 37$ (8 GiB of RAM) | 9 min |
 | `make -C src/c && src/c/count_composites 31` | $C(n)$, $n \le 31$, directly (128 MiB); add an odd `a` for $D_a(n)$ | 7 s |
 
 Timings are for a 4-core x86-64 machine with GCC 13 and OpenMP. `EXCLUSION_NMAX=24 pytest`
 extends the set-equality test for multiples of 5 to 24 bits; `--nmax` and
-`--cmax` set the ranges of `verify_theorems.py`. `generate_oeis.py` never
-shortens the committed table of $C(n)$: with a smaller `--cmax` it checks the
-engine against the committed terms and keeps them all. Where the C engine cannot be
-built or run, both scripts fall back to the committed counts in
-`oeis/bfiles/b_count_odd_composites.txt` and say so. Python $\ge$ 3.10; no
+`--cmax` set the ranges of `verify_theorems.py` (the sieve needs
+$2^{\mathrm{cmax} - 4}$ bytes: 8 GiB for the whole table, $n \le 37$). Where
+the C engine cannot be built or run, the script falls back to the committed
+counts in `data/count_odd_composites.txt` and says so. Python $\ge$ 3.10; no
 dependencies outside the standard library (pytest for the tests, a C11
-compiler for the sieve, `gp` to execute the PARI programs).
-
-## OEIS
-
-| sequence | A-number |
-|---|---|
-| $n \boxplus n$ | *pending* |
-| $n \boxtimes n$ | *pending* |
-| odd composites of $S$ | *pending* |
-| odd irreducibles of $S$ | *pending* |
-| $C(n)$ | *pending* |
-| $D_5(n)$ | *pending* |
-
-Drafts, b-files, submission order and checklist: [oeis/README.md](oeis/README.md).
-Related existing entries: A277335 (multiples of 3 in $S$), A086799
-($n \boxplus 1$, shifted), A162276 (agrees with $n \boxplus n$ for
-$1 \le n \le 10$ only), A067139 (irreducibles of OR-numbral arithmetic, where
-$1 + 1 = 1$).
+compiler for the sieve).
 
 ## Layout
 
@@ -351,9 +330,9 @@ src/exclusion/factor.py      quotients, divisors, irreducibility, factorisations
 src/exclusion/automata.py    recognisers for multiples of 3 and 5; certificate for 1 + x^s;
                              exact generating functions and growth rates
 src/c/count_composites.c     C11 sieve for C(n) and D_a(n), OpenMP optional
-scripts/                     verify_theorems.py, generate_oeis.py
+scripts/verify_theorems.py   checks Theorems 1-4 and prints the tables
 tests/test_exclusion.py      pytest suite
-oeis/                        submission drafts and b-files
+data/                        C(n) for n <= 37, as computed by the C sieve
 ```
 
 MIT licence.

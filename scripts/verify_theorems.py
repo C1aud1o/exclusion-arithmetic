@@ -7,7 +7,7 @@
         the products a [x] b themselves (the brute-force audit of Theorem 3).
 --cmax  bit length up to which the C engine counts composites (Theorem 4);
         memory 2^(cmax-4) bytes.  If the engine cannot be built or run, the
-        counts committed in oeis/bfiles/b_count_odd_composites.txt are used
+        counts committed in data/count_odd_composites.txt are used
         and compared with the Python sieve as far as that reaches.
 
 Exit status 0 iff every check passes.
@@ -88,8 +88,8 @@ def engine(*args):
 
 
 def committed_counts():
-    """C(1), C(2), ... as committed in the b-file (produced by the C engine)."""
-    path = ROOT / "oeis" / "bfiles" / "b_count_odd_composites.txt"
+    """C(1), C(2), ... as committed in data/ (lines "n C(n)", produced by the C engine)."""
+    path = ROOT / "data" / "count_odd_composites.txt"
     return [int(line.split()[1]) for line in path.read_text().splitlines()] if path.exists() else []
 
 
@@ -354,7 +354,7 @@ def theorem6(composites, nbits, D5, cmax, gammas):
     C = engine(cmax)
     if C is None:
         C = [0] + committed_counts()
-        print(f"  C engine not available: C(n), n <= {len(C) - 1}, taken from the committed b-file")
+        print(f"  C engine not available: C(n), n <= {len(C) - 1}, taken from the committed table")
         check(f"committed C(n) = Python sieve for n <= {nbits}", C[: nbits + 1] == Cpy)
     else:
         C = [0] + C
